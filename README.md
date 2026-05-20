@@ -13,12 +13,6 @@
 
 ---
 
-## Scenario
-
-Management suspects that employees may be using TOR browsers to bypass network security controls. Recent network logs show unusual encrypted traffic patterns and connections to known TOR entry nodes. There have also been anonymous reports of employees discussing ways to access restricted sites during work hours. The goal is to detect any TOR usage and analyze related security incidents to mitigate potential risks.
-
----
-
 ## Where It Started
 
 It started with a case file. Nine closed alerts, a handful of open tickets, and a Linux developer box that nobody had looked at too closely. My job was to figure out what actually happened.
