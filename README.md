@@ -80,6 +80,8 @@ This was intentional. By hosting the implant delivery infrastructure on Cloudfla
 
 To differentiate the malicious activity stream from normal session traffic during the 21:54–23:09 window, I compared two data sources: `LinuxShellHistory_CL` and `LinuxProcess_CL`. The differentiating fields were `ShellUser` in shell history and `ActorUsername` in process logs — the malicious stream showed blank actor context because the daemonized implant had no associated interactive session.
 
+Taken together, helix-update was a Sliver C2 implant. Once daemonized under systemd (PPID 1), it maintained a persistent channel back to the operator's infrastructure at 194.36.110.139, quietly harvesting credentials while the operator waited. 104 minutes later, they came back through the front door as sancadmin.
+
 ---
 
 ## Phase 3 — Backdoor Establishment & Attribution
