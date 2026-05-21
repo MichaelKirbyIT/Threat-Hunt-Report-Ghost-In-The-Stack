@@ -211,4 +211,140 @@ This investigation reinforced a few things I won't forget:
 
 ---
 
+---
+
+## Appendix A — MITRE ATT&CK Mapping
+
+| Technique ID | Technique Name | Evidence |
+|---|---|---|
+| T1078 | Valid Accounts | `a.kumar` account used for initial access |
+| T1059.004 | Unix Shell | `curl \| bash` delivery via interactive shell |
+| T1105 | Ingress Tool Transfer | `curl` downloading `/tmp/helix-update` |
+| T1036 | Masquerading | `sftp-server` process used to transfer malicious binaries |
+| T1543.002 | Systemd Service | `helix-sync` established as persistent systemd service |
+| T1098.004 | SSH Authorized Keys | Backdoor key written to `a.kumar`'s `authorized_keys` |
+| T1003 | OS Credential Dumping | Implant harvesting `aws_creds`, `kube_creds`, `ssh_user_keys` |
+| T1021.004 | SSH | Lateral movement attempted via SSH port forward through DEV01 |
+| T1090 | Proxy | Ligolo tunnel used for C2 communication |
+| T1027 | Obfuscated Files or Information | Base64 UTF-16LE encoded PowerShell payload |
+| T1583.006 | Acquire Infrastructure: CDN | Cloudflare used to front C2 delivery infrastructure |
+
+---
+
+## Appendix B — Attack Timeline
+
+| Time (UTC) | Event |
+|---|---|
+| 2026-04-30 21:54:51 | `a.kumar` executes `curl \| bash` delivery command |
+| 2026-04-30 21:54:56 | `helix-update` (PID 34616) daemonizes under systemd (PPID 1) |
+| 2026-04-30 21:54:56 – 23:09:00 | Implant harvests credentials via `aws`, `kubectl`, `ssh` child processes |
+| 2026-04-30 22:57:52 | Implant writes backdoor SSH key to `a.kumar`'s `authorized_keys` |
+| 2026-04-30 23:39:13 | Attacker SSH's in as `sancadmin` from `194.36.110.139` (104 min dwell) |
+| 2026-04-30 23:39:13 – 23:42:00 | `sftp-server` transfers `/tmp/helix-sync` and `/tmp/hbsync.exe` to DEV01 |
+| 2026-04-30 23:42:00 | `helix-sync` established as persistent systemd service |
+| 2026-04-30 23:42:00 – 02:00:00 | SMB, WinRM, WMI lateral movement attempts — all failed |
+| 2026-04-30 23:47:00 | `t.harris` lands on GF-WS01 via SSH port forward (CLOSED-1 through CLOSED-4) |
+| 2026-05-01 (late session) | Operator probes C2 listener at `194.36.110.139:9080` |
+
+---
+
+## Appendix C — KQL Queries Used
+
+**Initial access delivery command**
+```kql
+LinuxShellHistory_CL
+| where TimeGenerated between (datetime(2026-04-30T21:54:40Z) .. datetime(2026-04-30T21:55:00Z))
+| where Computer == "GF-DEV01"
+| where ShellUser == "a.kumar"
+| order by TimeGenerated asc
+```
+
+**Implant process chain**
+```kql
+LinuxProcess_CL
+| where TimeGenerated between (datetime(2026-04-30T21:54:40Z) .. datetime(2026-04-30T21:55:10Z))
+| where DvcHostname == "GF-DEV01"
+| project TimeGenerated, TargetProcessId, ActingProcessId, TargetProcessFilePath, TargetProcessCommandLine
+| order by TimeGenerated asc
+```
+
+**Child process credential harvesting**
+```kql
+LinuxSyscall_CL
+| where Ppid == 34616
+| where Exe !contains "helix-update"
+| summarize count() by Comm, AuditKey
+| order by Comm asc
+```
+
+**Implant binary own reads**
+```kql
+LinuxSyscall_CL
+| where Exe contains "helix-update"
+| summarize count() by AuditKey
+| order by count_ desc
+```
+
+**Network footprint — Cloudflare connections**
+```kql
+LinuxNetwork_CL
+| where TimeGenerated between (datetime(2026-04-30T21:54:00Z) .. datetime(2026-05-01T01:03:00Z))
+| where _ResourceId contains "gf-dev01"
+| where DstIpAddr startswith "104.16" or DstIpAddr startswith "104.21"
+| project TimeGenerated, ActingProcessId, ActingProcessName, DstIpAddr, DstPortNumber
+| order by ActingProcessId asc
+```
+
+**authorized_keys backdoor write**
+```kql
+Syslog
+| where TimeGenerated between (datetime(2026-04-30T22:54:00Z) .. datetime(2026-04-30T23:00:00Z))
+| where Computer == "GF-DEV01"
+| where SyslogMessage contains "authorized_keys"
+| project TimeGenerated, SyslogMessage
+| order by TimeGenerated asc
+```
+
+**First sancadmin SSH from attacker IP**
+```kql
+LinuxAuth_CL
+| where TimeGenerated between (datetime(2026-04-30T21:54:00Z) .. datetime(2026-05-01T04:00:00Z))
+| where SrcIpAddr == "194.36.110.139"
+| where EventType == "Logon"
+| where EventResult == "Success"
+| where TargetUsername == "sancadmin"
+| project TimeGenerated, TargetUsername, SrcIpAddr
+| order by TimeGenerated asc
+| take 1
+```
+
+**Files dropped by sftp-server**
+```kql
+LinuxFile_CL
+| where TimeGenerated between (datetime(2026-04-30T23:39:00Z) .. datetime(2026-05-01T04:00:00Z))
+| where _ResourceId contains "gf-dev01"
+| where ActorUsername == "sancadmin"
+| project TimeGenerated, ActorUsername, ActingProcessName, TargetFilePath
+| order by TimeGenerated asc
+```
+
+**sancadmin lateral movement commands**
+```kql
+LinuxShellHistory_CL
+| where TimeGenerated between (datetime(2026-04-30T23:39:00Z) .. datetime(2026-05-01T04:00:00Z))
+| where Computer == "GF-DEV01"
+| where ShellUser == "sancadmin"
+| project TimeGenerated, Command
+| order by TimeGenerated asc
+```
+
+**Containment — operator file artefacts**
+```kql
+LinuxFile_CL
+| where TimeGenerated between (datetime(2026-04-30T21:54:00Z) .. datetime(2026-05-01T04:00:00Z))
+| where _ResourceId contains "gf-dev01"
+| where ActorUsername in ("a.kumar", "sancadmin", "root")
+| project TimeGenerated, ActorUsername, ActingProcessName, TargetFilePath
+```
+
 *A huge thank you to Josh Madakor for building The Cyber Range and creating a community where this kind of learning is possible, and to Mohammed A — the Threat Hunt Engineer behind this challenge. The level of detail and craft that went into this scenario is genuinely impressive. I struggled, I learned, and I came out a better analyst for it.*
