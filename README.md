@@ -62,13 +62,12 @@ I pivoted into the Linux syscall audit table `LinuxSyscall_CL`. This is where au
 | Tool | Watch Key | What It Touched |
 |------|-----------|-----------------|
 | aws | aws_creds | AWS credential files |
-| bash | ssh_user_keys | SSH key files |
 | kubectl | kube_creds | Kubernetes credentials |
 | ssh | ssh_user_keys | SSH key files |
 
-The implant was spawning these tools specifically to harvest credentials: cloud keys, Kubernetes configs, SSH keys. When I filtered the same table to the implant binary itself (excluding its children), the most frequently accessed watch key category was `claude_data` — accessed 6 times.
+The implant was spawning these tools specifically to harvest credentials: cloud keys, Kubernetes configs, SSH keys.
 
-There was a more important finding buried in the same data. One watch key `ssh_user_keys` explained how the attacker got access to both compromised accounts: `sancadmin` and `t.harris`. SSH keys were the mechanism that unlocked both. The implant read SSH key files 5 times during this window.
+A second query filtered to the implant binary itself — excluding its children — to see what `helix-update` was reading directly. The top watch key category was `claude_data`, accessed 6 times. These are two separate result sets from two separate queries: one showing what the child processes touched, one showing what the implant itself read most.
 
 To understand the network footprint, I pivoted to `LinuxNetwork_CL`. The traffic pattern wasn't what I expected — no obvious C2 beaconing. Instead, PID 34616 and its children were hitting Cloudflare IP ranges (104.16.x.x and 104.21.x.x). Four unique PIDs made outbound connections:
 
@@ -127,13 +126,13 @@ systemctl enable helix-sync
 systemctl start helix-sync
 ```
 
-`helix-sync` was being established as a persistent systemd service — ensuring the C2 tunnel survived reboots. Microsoft Defender for Cloud fingerprinted it with a known signature: `HackTool:Linux/Ligolo.A!MTB`. This was a Ligolo tunnel component embedded in the Sliver C2 framework.
+`helix-sync` was being established as a persistent systemd service — ensuring the tunnel survived reboots. Microsoft Defender for Cloud fingerprinted it with a known signature: `HackTool:Linux/Ligolo.A!MTB`. To be precise: `helix-sync` is the Ligolo tunnel binary. `helix-update` is the Sliver C2 implant. Two separate binaries, two distinct roles.
 
 With persistence set, the operator turned to lateral movement. Their shell history showed a methodical progression through four techniques in order:
 
-1. **ligolo** — setting up the C2 tunnel
-2. **smb** — attempting file delivery via smbclient
-3. **winrm** — attempting remote execution via PowerShell
+1. **smb** — attempting file delivery via smbclient
+2. **winrm** — attempting remote execution via PowerShell
+3. **ligolo** — setting up the C2 tunnel
 4. **wmi** — attempting remote execution via wmi_exec.py
 
 One command buried in the WinRM attempt was particularly interesting. The operator ran a PowerShell `Invoke-Command` with a `-enc` flag — a base64 encoded scriptblock. Decoding the outer UTF-16LE layer revealed another base64 string inside. Decoding that revealed the payload:
@@ -192,7 +191,7 @@ At the end of the attacker's shift, three artefacts remained on GF-DEV01:
 
 **`helix-update`** — still running as PID 34616 under systemd. The original Sliver C2 implant, daemonized via nohup, never killed. Active in memory.
 
-**`authorized_keys`** — permanently modified with the attacker's SSH public key (comment: `octotempest@operator`). A backdoor that survives reboots, giving persistent SSH access to `a.kumar`'s account from anywhere.
+**`authorized_keys`** — permanently modified with the attacker's SSH public key (comment: `octotempest@operator`). A backdoor written to `a.kumar`'s account that survives reboots, giving persistent SSH access from anywhere.
 
 **`helix-sync`** — the staged copy sitting in `/tmp`, dropped via SFTP, never cleaned up. The installed copy was running as a service. This one was just dead weight left on disk — dormant.
 
