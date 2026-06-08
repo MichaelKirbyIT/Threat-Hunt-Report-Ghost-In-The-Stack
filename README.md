@@ -1,6 +1,8 @@
 # Threat Hunt Report — Operation Greenfield
-### GF-DEV01 Intrusion Analysis | April 30 – May 1, 2026
-**Analyst:** Michael Kirby | **Classification:** Internal
+**GF-DEV01 Intrusion Analysis**<br>
+**Telemetry Window:** April 30 – May 1, 2026<br>
+**Analysis Completed:** May 2026<br>
+**Analyst**: Michael Kirby | **Classification:** Internal
 
 ---
 
